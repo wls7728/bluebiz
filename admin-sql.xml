@@ -1,0 +1,1217 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="admin.admin">
+	<!-- 고객 관련 시작 -->
+	<select id="custList" parameterType="vmap" resultType="rmap">
+		SELECT 
+			CUST_CD
+			,CUST_COMP
+		FROM DF_CUST_INFO 
+		WHERE CUST_EXP_DT <![CDATA[>=]]> DATE_ADD(CURRENT_DATE, INTERVAL -10 DAY)
+	</select>
+	<!-- 고객 관련 끝 -->
+	
+	<!-- 페이지 관련 시작 -->
+	<!-- 메뉴관리에서 하위메뉴 추가 시 사용 -->
+	<select id="pageList" parameterType="vmap" resultType="rmap">
+		SELECT 
+			PAGE_CD
+			,PAGE_NM
+			,PAGE_PATH 
+		FROM DF_PAGE_INFO DPI
+			LEFT JOIN DF_MENU_INFO DMI ON DMI.CUST_CD = DPI.CUST_CD
+				AND DMI.JA_CD = DPI.PAGE_CD  
+		WHERE DPI.CUST_CD = #{cust_cd}
+			AND PAGE_CD <![CDATA[>=]]> '1000'
+			AND PAGE_CD NOT IN (8010, 8020)
+			AND PAGE_PATH NOT LIKE '/tablet%'
+			AND JA_CD IS NULL
+			AND PAGE_YN = 'Y'
+		<if test='@com.bluebiz.common.util.CommonUtils@isNotEmpty(page_nm)'>
+			AND PAGE_NM LIKE CONCAT('%',#{page_nm},'%')
+		</if>
+		ORDER BY PAGE_CD
+	</select>
+	<!-- 페이지 관련 끝 -->
+	
+	<!-- 메뉴 관련 시작 -->
+	<select id="menuPage" parameterType="vmap" resultType="rmap">
+		SELECT 
+			DMI.CUST_CD
+			,MO_CD
+			,(SELECT PAGE_NM 
+				FROM DF_PAGE_INFO 
+				WHERE CUST_CD = DMI.CUST_CD
+					AND PAGE_CD = MO_CD
+			) MO_NM
+			,JA_CD
+			,MENU_ICON
+			,MENU_DEPTH
+			,MENU_SEQ
+			,MENU_SKIN
+			,MENU_CRDT
+			,MENU_UPDT
+			,MENU_SABN
+			,(SELECT USER_NM 
+				FROM DF_USER_INFO 
+				WHERE CUST_CD = DMI.CUST_CD
+					AND USER_CD = MENU_SABN
+			) USER_NM
+			,PAGE_NM
+			,PAGE_PATH
+			,PAGE_AUTH
+		FROM DF_MENU_INFO DMI
+			JOIN DF_PAGE_INFO DPI ON DPI.CUST_CD = DMI.CUST_CD 
+				AND PAGE_CD = JA_CD
+		WHERE DMI.CUST_CD = #{cust_cd}
+			AND MO_CD = #{mo_cd}
+		<if test='user_cd != "bluebiz"'>
+			AND JA_CD <![CDATA[>=]]> '1000' 
+		</if>
+			AND PAGE_YN = 'Y'
+		ORDER BY MENU_SEQ, PAGE_NM
+	</select>
+	
+	<insert id="menuRegist" parameterType="vmap">
+		CALL spMenuRegist(#{cust_cd}, #{mo_cd}, #{ja_cd}, #{menu_depth}, #{menu_icon}, IFNULL(#{menu_skin}, "01"), #{user_cd})
+	</insert>
+	
+	<select id="menuItem" parameterType="vmap" resultType="rmap">
+		SELECT 
+			DPI.CUST_CD
+			,JA_CD
+			,PAGE_NM
+			,PAGE_PATH
+			,PAGE_AUTH
+			,MENU_ICON
+			,MENU_SKIN
+			,(SELECT PAGE_NM 
+				FROM DF_PAGE_INFO 
+				WHERE CUST_CD = DMI.CUST_CD
+					AND PAGE_CD = MO_CD
+			) PAGE_MO_NM		<!-- 중복 메뉴 체크용 -->
+		FROM DF_PAGE_INFO DPI
+			JOIN DF_MENU_INFO DMI ON DPI.CUST_CD = DMI.CUST_CD
+				AND PAGE_CD = JA_CD
+		WHERE DPI.CUST_CD = #{cust_cd}
+			<!-- AND MO_CD = #{mo_cd} : JA_CD에는 중복을 허용하지 않으므로.. -->
+			AND JA_CD = #{ja_cd}
+	</select>
+	
+	<update id="menuModify" parameterType="vmap">
+		UPDATE DF_MENU_INFO
+		SET MENU_ICON = #{menu_icon}
+			,MENU_SKIN = IFNULL(#{menu_skin}, MENU_SKIN)
+			,MENU_UPDT = now()
+			,MENU_SABN = #{user_cd}
+		WHERE CUST_CD = #{cust_cd}
+			AND MO_CD = #{mo_cd}
+			AND JA_CD = #{ja_cd}
+	</update>
+	
+	<update id="menuOrder" parameterType="vmap">
+		UPDATE DF_MENU_INFO
+		SET MENU_SEQ = #{menu_seq}
+			,MENU_UPDT = now()
+			,MENU_SABN = #{user_cd}
+		WHERE CUST_CD = #{cust_cd}
+			AND MO_CD = #{mo_cd}
+			AND JA_CD = #{ja_cd}
+	</update>
+	
+	<delete id="menuDelete" parameterType="vmap">
+		DELETE FROM DF_MENU_INFO
+		WHERE CUST_CD = #{cust_cd}
+			AND MO_CD = #{mo_cd}
+			AND JA_CD = #{ja_cd}
+	</delete>
+	<!-- 메뉴 관련 끝 -->
+	
+	<!-- 권한 관련 시작 -->
+	<select id="authPage" parameterType="vmap" resultType="rmap">
+		SELECT 
+			DMI.CUST_CD
+			,PAGE_CD
+			,PAGE_NM
+			,PAGE_PATH
+			,PAGE_AUTH
+			,PAGE_YN
+			,MENU_CRDT
+			,MENU_UPDT
+			,MENU_SABN
+			,(SELECT USER_NM 
+				FROM DF_USER_INFO 
+				WHERE CUST_CD = DMI.CUST_CD
+					AND USER_CD = MENU_SABN
+			) USER_NM
+		FROM DF_PAGE_INFO DPI
+			RIGHT JOIN DF_MENU_INFO DMI ON DMI.CUST_CD = DPI.CUST_CD
+				AND DMI.JA_CD = DPI.PAGE_CD  
+		WHERE DMI.CUST_CD = #{cust_cd}
+			AND PAGE_CD <![CDATA[>=]]> '1000' 
+			AND PAGE_YN = 'Y'
+		<!-- 공통 검색어 시작 -->
+		<if test='@com.bluebiz.common.util.CommonUtils@isNotEmpty(keywords)'>
+			AND
+			<foreach item="item" index="index" collection="columnList" open="(" separator=" OR " close=")">
+				${item} LIKE CONCAT('%', #{keywords}, '%')
+			</foreach>
+		</if>
+		<!-- 공통 검색어 끝 -->
+		<if test='@com.bluebiz.common.util.CommonUtils@isNotEmpty(page_auth)'>
+			AND PAGE_AUTH = #{page_auth}
+		</if>
+		ORDER BY PAGE_CD
+	</select>
+	
+	<select id="authSubList" parameterType="vmap" resultType="rmap">
+		SELECT 
+			DAI.CUST_CD
+			,PAGE_CD
+			,PAGE_NM
+			,PAGE_AUTH
+			,AUTH_TARG
+			,(SELECT DEPT_NM 
+				FROM DF_DEPT_INFO 
+				WHERE CUST_CD = DAI.CUST_CD
+					AND DEPT_CD = AUTH_TARG
+			) DEPT_NM
+			,(SELECT USER_NM 
+				FROM DF_USER_INFO 
+				WHERE CUST_CD = DAI.CUST_CD
+					AND USER_CD = AUTH_TARG
+			) USER_NM
+			,AUTH_TYPE
+			,AUTH_CRDT
+			,AUTH_SABN
+			,(SELECT USER_NM 
+				FROM DF_USER_INFO 
+				WHERE CUST_CD = DAI.CUST_CD
+					AND USER_CD = AUTH_SABN
+			) SABN_NM
+		FROM DF_AUTH_INFO DAI
+			JOIN DF_PAGE_INFO DPI USING(CUST_CD, PAGE_CD)
+		WHERE CUST_CD = #{cust_cd}
+			AND PAGE_CD = #{page_cd}
+		ORDER BY AUTH_TYPE DESC, AUTH_TARG
+	</select>
+	
+	<insert id="authRegist" parameterType="vmap">
+		INSERT INTO DF_AUTH_INFO (
+			CUST_CD
+			,PAGE_CD
+			,AUTH_TARG
+			,AUTH_TYPE
+			,AUTH_CRDT
+			,AUTH_UPDT
+			,AUTH_SABN
+		)
+		VALUES (
+			#{cust_cd}
+			,#{page_cd}
+			,#{auth_targ}
+			,#{auth_type}
+			,NOW()
+			,NOW()
+			,#{user_cd}
+		)
+		ON DUPLICATE KEY UPDATE 
+			AUTH_TYPE = #{auth_type}
+			,AUTH_UPDT = NOW()
+			,AUTH_SABN = #{user_cd}
+	</insert>
+	
+	<select id="authOverlap" parameterType="vmap" resultType="rmap">
+		SELECT 
+			CUST_CD
+			,PAGE_CD
+			,AUTH_TARG
+			,AUTH_TYPE
+		FROM DF_AUTH_INFO
+		WHERE CUST_CD = #{cust_cd}
+			AND PAGE_CD = #{page_cd}
+		<if test='@com.bluebiz.common.util.CommonUtils@isNotEmpty(auth_targ)'>
+			AND AUTH_TARG = #{auth_targ}
+		</if>
+	</select>
+	
+	<update id="authModify" parameterType="vmap">
+		UPDATE DF_PAGE_INFO
+		SET PAGE_AUTH = #{page_auth}
+		WHERE CUST_CD = #{cust_cd}
+			AND PAGE_CD = #{page_cd}
+	</update>
+	
+	<delete id="authDelete" parameterType="vmap">
+		DELETE FROM DF_AUTH_INFO
+		WHERE CUST_CD = #{cust_cd}
+			AND PAGE_CD = #{page_cd}
+		<if test='@com.bluebiz.common.util.CommonUtils@isNotEmpty(auth_type)'>
+			AND AUTH_TYPE = #{auth_type}
+		</if>
+		<if test='@com.bluebiz.common.util.CommonUtils@isNotEmpty(auth_targ)'>
+			AND AUTH_TARG = #{auth_targ}
+		</if>
+	</delete>
+	<!-- 권한 관련 끝 -->
+	
+	<!-- 공통코드 관련 시작 -->
+	<select id="basePage" parameterType="vmap" resultType="rmap">
+		SELECT 
+			CUST_CD
+			,BASE_CD
+			,BASE_NM
+			,BASE_TYPE
+			,BASE_HIGH_YN
+			,BASE_HIGH_CD
+			,(SELECT BASE_NM
+				FROM DF_BASE_INFO
+				WHERE CUST_CD = DBI.CUST_CD
+					AND BASE_CD = DBI.BASE_HIGH_CD
+					AND DBI.BASE_HIGH_YN = 'Y'
+			) BASE_HIGH_CD_NM
+			,BASE_VIEW_YN
+			,BASE_YN
+			,BASE_NT
+			,BASE_CRDT
+			,BASE_UPDT
+			,BASE_SABN
+			,(SELECT USER_NM
+				FROM DF_USER_INFO
+				WHERE CUST_CD = DBI.CUST_CD
+					AND USER_CD = BASE_SABN
+			) USER_NM
+		FROM DF_BASE_INFO DBI
+		WHERE CUST_CD = #{cust_cd}
+		<!-- 공통 검색어 시작 -->
+		<if test='@com.bluebiz.common.util.CommonUtils@isNotEmpty(keywords)'>
+			AND
+			<foreach item="item" index="index" collection="columnList" open="(" separator=" OR " close=")">
+				${item} LIKE CONCAT('%', #{keywords}, '%')
+			</foreach>
+		</if>
+		<!-- 공통 검색어 끝 -->
+		<if test='@com.bluebiz.common.util.CommonUtils@isNotEmpty(base_type)'>
+			AND BASE_TYPE = #{base_type}
+		</if>
+		<if test='@com.bluebiz.common.util.CommonUtils@isNotEmpty(base_view_yn)'>
+			AND BASE_VIEW_YN = #{base_view_yn}
+		</if>
+		<if test='@com.bluebiz.common.util.CommonUtils@isNotEmpty(base_yn)'>
+			AND BASE_YN = #{base_yn}
+		</if>
+		ORDER BY BASE_NM
+	</select>
+	
+	<insert id="baseRegist" parameterType="vmap">
+		INSERT INTO DF_BASE_INFO (
+			CUST_CD
+			,BASE_CD
+			,BASE_NM
+			,BASE_TYPE
+			,BASE_HIGH_YN
+			,BASE_HIGH_CD
+			,BASE_VIEW_YN
+			,BASE_YN
+			,BASE_NT
+			,BASE_CRDT
+			,BASE_UPDT
+			,BASE_SABN
+		)
+		VALUES (
+			#{cust_cd}
+			,#{base_cd}
+			,#{base_nm}
+			,#{base_type}
+			,#{base_high_yn}
+			,#{base_high_cd}
+			,IFNULL(#{base_view_yn}, 'N')
+			,IFNULL(#{base_yn}, 'Y')
+			,#{base_nt}
+			,NOW()
+			,NOW()
+			,#{user_cd}
+		)
+	</insert>
+	
+	<select id="baseOverlap" parameterType="vmap" resultType="rmap">
+		SELECT 
+			CUST_CD
+			,BASE_CD
+			,BASE_NM
+			,BASE_TYPE
+			,BASE_HIGH_YN
+			,BASE_HIGH_CD
+			,BASE_VIEW_YN
+			,BASE_YN
+			,BASE_NT
+			,BASE_CRDT
+			,BASE_UPDT
+			,BASE_SABN
+		FROM DF_BASE_INFO
+		WHERE CUST_CD = #{cust_cd}
+		<if test="@com.bluebiz.common.util.CommonUtils@isNotEmpty(base_cd)">
+			AND BASE_CD = #{base_cd}
+		</if>
+		<if test="@com.bluebiz.common.util.CommonUtils@isNotEmpty(base_nm)">
+			AND BASE_NM = #{base_nm}
+		</if>
+	</select>
+	
+	<select id="baseHighList" parameterType="vmap" resultType="rmap">
+		SELECT
+			CUST_CD
+			,BASE_CD
+			,BASE_NM
+		FROM DF_BASE_INFO
+		WHERE CUST_CD = #{cust_cd}
+			AND BASE_TYPE = 'L'
+			AND BASE_HIGH_YN = 'N'
+		ORDER BY BASE_NM
+	</select>
+	
+	<select id="baseItem" parameterType="vmap" resultType="rmap">
+		SELECT
+			CUST_CD
+			,BASE_CD
+			,BASE_NM
+			,BASE_TYPE
+			,BASE_HIGH_YN
+			,BASE_HIGH_CD
+			,BASE_VIEW_YN
+			,BASE_YN
+			,BASE_NT
+			,BASE_CRDT
+			,BASE_UPDT
+			,BASE_SABN
+		FROM DF_BASE_INFO
+		WHERE CUST_CD = #{cust_cd}
+			AND BASE_CD = #{base_cd}
+	</select>
+	
+	<update id="baseModify" parameterType="vmap">
+		UPDATE DF_BASE_INFO
+		SET 
+			BASE_VIEW_YN = IFNULL(#{base_view_yn}, BASE_VIEW_YN)
+			,BASE_YN = IFNULL(#{base_yn}, BASE_YN)
+			,BASE_NT = #{base_nt}
+			,BASE_UPDT = now()
+			,BASE_SABN = #{user_cd}
+		WHERE CUST_CD = #{cust_cd}
+			AND BASE_CD = #{base_cd}
+	</update>
+	
+	<select id="bsdtList" parameterType="vmap" resultType="rmap">
+		SELECT
+			CUST_CD
+			,BASE_CD
+			,BSDT_CD
+			,BSDT_NM
+			,BSDT_HIGH_CD
+			,(SELECT BSDT_NM
+				FROM DF_BASE_DETAIL
+				WHERE CUST_CD = DBD.CUST_CD
+					AND BSDT_CD = DBD.BSDT_HIGH_CD
+			) BSDT_MO_NM
+			,BSDT_SEQ
+			,BSDT_FIXED_YN
+			,BSDT_YN
+			,BSDT_NT
+			,BSDT_CRDT
+			,BSDT_UPDT
+			,BSDT_SABN
+		FROM DF_BASE_DETAIL DBD
+		WHERE CUST_CD = #{cust_cd}
+			AND BASE_CD = #{base_cd}
+		<if test="@com.bluebiz.common.util.CommonUtils@isNotEmpty(bsdt_high_cd)">
+			AND BSDT_HIGH_CD = #{bsdt_high_cd}
+		</if>
+			AND BSDT_YN = 'Y'
+		ORDER BY BSDT_SEQ ASC
+	</select>
+	
+	<insert id="bsdtRegist" parameterType="vmap">
+		<selectKey keyProperty="bsdt_seq" resultType="java.lang.Integer" order="BEFORE">
+			SELECT IFNULL(MAX(BSDT_SEQ) + 1, 1)
+			FROM DF_BASE_DETAIL
+			WHERE CUST_CD = #{cust_cd}
+				AND BASE_CD = #{base_cd}
+		</selectKey>
+		
+		INSERT INTO DF_BASE_DETAIL (
+			CUST_CD
+			,BASE_CD
+			,BSDT_CD
+			,BSDT_NM
+			,BSDT_HIGH_CD
+			,BSDT_SEQ
+			,BSDT_FIXED_YN
+			,BSDT_YN
+			,BSDT_NT
+			,BSDT_CRDT
+			,BSDT_UPDT
+			,BSDT_SABN
+		)
+		VALUES (
+			#{cust_cd}
+			,#{base_cd}
+			,#{bsdt_cd}
+			,#{bsdt_nm}
+			,#{bsdt_high_cd}
+			,#{bsdt_seq}
+			,IFNULL(#{bsdt_fixed_yn}, 'N')
+			,IFNULL(#{bsdt_yn}, 'Y')
+			,#{bsdt_nt}
+			,NOW()
+			,NOW()
+			,#{user_cd}
+		)
+		ON DUPLICATE KEY UPDATE 
+			BSDT_YN = 'Y'
+			,BSDT_UPDT = NOW()
+			,BSDT_SABN = #{user_cd}
+	</insert>
+	
+	<select id="bsdtOverlap" parameterType="vmap" resultType="rmap">
+		SELECT 
+			CUST_CD
+			,BASE_CD
+			,BSDT_CD
+			,BSDT_NM
+			,BSDT_HIGH_CD
+			,BSDT_SEQ
+			,BSDT_FIXED_YN
+			,BSDT_YN
+			,BSDT_NT
+			,BSDT_CRDT
+			,BSDT_UPDT
+			,BSDT_SABN
+		FROM DF_BASE_DETAIL
+		WHERE CUST_CD = #{cust_cd}
+			AND BASE_CD = #{base_cd}
+		<if test="@com.bluebiz.common.util.CommonUtils@isNotEmpty(bsdt_high_cd)">
+			AND BSDT_HIGH_CD = #{bsdt_high_cd}
+		</if>
+		<if test="@com.bluebiz.common.util.CommonUtils@isNotEmpty(bsdt_nm)">
+			AND BSDT_NM = #{bsdt_nm}
+		</if>
+	</select>
+	
+	<select id="bsdtItem" parameterType="vmap" resultType="rmap">
+		SELECT
+			CUST_CD
+			,BASE_CD
+			,BSDT_CD
+			,BSDT_NM
+			,BSDT_HIGH_CD
+			,BSDT_SEQ
+			,BSDT_FIXED_YN
+			,BSDT_YN
+			,BSDT_NT
+			,BSDT_CRDT
+			,BSDT_UPDT
+			,BSDT_SABN
+		FROM DF_BASE_DETAIL
+		WHERE CUST_CD = #{cust_cd}
+			AND BASE_CD = #{base_cd}
+			AND BSDT_CD = #{bsdt_cd}
+	</select>
+	
+	<update id="bsdtModify" parameterType="vmap">
+		UPDATE DF_BASE_DETAIL
+		SET 
+			BSDT_NM = #{bsdt_nm}
+			,BSDT_HIGH_CD = #{bsdt_high_cd}
+			,BSDT_NT = #{bsdt_nt}
+			,BSDT_UPDT = now()
+			,BSDT_SABN = #{user_cd}
+		WHERE CUST_CD = #{cust_cd}
+			AND BASE_CD = #{base_cd}
+			AND BSDT_CD = #{bsdt_cd}
+	</update>
+	
+	<update id="bsdtOrder" parameterType="vmap">
+		UPDATE DF_BASE_DETAIL
+		SET 
+			BSDT_SEQ = #{bsdt_seq}
+			,BSDT_UPDT = now()
+			,BSDT_SABN = #{user_cd}
+		WHERE CUST_CD = #{cust_cd}
+			AND BASE_CD = #{base_cd}
+			AND BSDT_CD = #{bsdt_cd}
+	</update>
+	
+	<update id="bsdtRemove" parameterType="vmap">
+		UPDATE DF_BASE_DETAIL
+		SET 
+			BSDT_YN = 'N'
+			,BSDT_UPDT = now()
+			,BSDT_SABN = #{user_cd}
+		WHERE CUST_CD = #{cust_cd}
+			AND BASE_CD = #{base_cd}
+			AND BSDT_CD = #{bsdt_cd}
+	</update>
+	<!-- 공통코드 관련 끝 -->
+	
+	<!-- 상태코드 관련 시작 -->
+	<insert id="codeRegist" parameterType="vmap">
+		<selectKey keyProperty="code_seq" resultType="java.lang.Integer" order="BEFORE">
+			SELECT IFNULL(MAX(CODE_SEQ) + 1, 1)
+			FROM DF_CODE_INFO
+			WHERE CUST_CD = #{cust_cd}
+				AND CODE_CD = #{code_cd}
+		</selectKey>
+		
+		INSERT INTO DF_CODE_INFO (
+			CUST_CD
+			,CODE_CD
+			,CODE_NM
+			,CODE_VAL
+			,CODE_SEQ
+			,CODE_CRDT
+			,CODE_UPDT
+			,CODE_SABN
+		)
+		VALUES (
+			#{cust_cd}
+			,#{code_cd}
+			,#{code_nm}
+			,#{code_val}
+			,#{code_seq}
+			,NOW()
+			,NOW()
+			,#{user_cd}
+		)
+	</insert>
+	<!-- 상태코드 관련 끝 -->
+	
+	<!-- 게시판 관련 시작 -->
+	<select id="bomnPage" parameterType="vmap" resultType="rmap">
+		SELECT 
+			CUST_CD
+			,BOMN_CD
+			,BOMN_NM
+			,BOMN_EXP_YN
+			,BOMN_RECV_YN
+			,BOMN_ATTACH_YN
+			,BOMN_REPLY_YN
+			,BOMN_NT
+			,BOMN_YN
+			,BOMN_CRDT
+			,BOMN_UPDT
+			,BOMN_SABN
+			,(SELECT USER_NM
+				FROM DF_USER_INFO
+				WHERE CUST_CD = BBM.CUST_CD
+					AND USER_CD = BOMN_SABN
+			) USER_NM
+		FROM BD_BORD_MANAGE BBM
+		WHERE CUST_CD = #{cust_cd}
+		<!-- 공통 검색어 시작 -->
+		<if test='@com.bluebiz.common.util.CommonUtils@isNotEmpty(keywords)'>
+			AND
+			<foreach item="item" index="index" collection="columnList" open="(" separator=" OR " close=")">
+				${item} LIKE CONCAT('%', #{keywords}, '%')
+			</foreach>
+		</if>
+		<!-- 공통 검색어 끝 -->
+		<if test="@com.bluebiz.common.util.CommonUtils@isNotEmpty(bomn_yn)">
+			AND BOMN_YN = #{bomn_yn}
+		</if>
+		ORDER BY BOMN_NM
+	</select>
+	
+	<insert id="bomnRegist" parameterType="vmap">
+		INSERT INTO BD_BORD_MANAGE (
+			CUST_CD
+			,BOMN_CD
+			,BOMN_NM
+			,BOMN_EXP_YN
+			,BOMN_RECV_YN
+			,BOMN_ATTACH_YN
+			,BOMN_REPLY_YN
+			,BOMN_YN
+			,BOMN_NT
+			,BOMN_CRDT
+			,BOMN_UPDT
+			,BOMN_SABN
+		)
+		VALUES (
+			#{cust_cd}
+			,#{bomn_cd}
+			,#{bomn_nm}
+			,#{bomn_exp_yn}
+			,#{bomn_recv_yn}
+			,#{bomn_attach_yn}
+			,#{bomn_reply_yn}
+			,#{bomn_yn}
+			,#{bomn_nt}
+			,NOW()
+			,NOW()
+			,#{user_cd}
+		)
+	</insert>
+	
+	<select id="bomnOverlap" parameterType="vmap" resultType="rmap">
+		SELECT 
+			CUST_CD
+			,BOMN_CD
+			,BOMN_NM
+			,BOMN_EXP_YN
+			,BOMN_RECV_YN
+			,BOMN_ATTACH_YN
+			,BOMN_REPLY_YN
+			,BOMN_YN
+			,BOMN_NT
+		FROM BD_BORD_MANAGE
+		WHERE CUST_CD = #{cust_cd}
+		<if test="@com.bluebiz.common.util.CommonUtils@isNotEmpty(bomn_nm)">
+			AND BOMN_NM = #{bomn_nm}
+		</if>
+	</select>
+	
+	<select id="bomnItem" parameterType="vmap" resultType="rmap">
+		SELECT
+			CUST_CD
+			,BOMN_CD
+			,BOMN_NM
+			,BOMN_EXP_YN
+			,BOMN_RECV_YN
+			,BOMN_ATTACH_YN
+			,BOMN_REPLY_YN
+			,BOMN_YN
+			,BOMN_NT
+			,BOMN_CRDT
+			,BOMN_UPDT
+			,BOMN_SABN
+		FROM BD_BORD_MANAGE
+		WHERE CUST_CD = #{cust_cd}
+			AND BOMN_CD = #{bomn_cd}
+	</select>
+	
+	<update id="bomnModify" parameterType="vmap">
+		UPDATE BD_BORD_MANAGE
+		SET 
+			BOMN_NM = #{bomn_nm}
+			,BOMN_EXP_YN = IFNULL(#{bomn_exp_yn}, BOMN_EXP_YN)
+			,BOMN_RECV_YN = IFNULL(#{bomn_recv_yn}, BOMN_RECV_YN)
+			,BOMN_ATTACH_YN = IFNULL(#{bomn_attach_yn}, BOMN_ATTACH_YN)
+			,BOMN_REPLY_YN = IFNULL(#{bomn_reply_yn}, BOMN_REPLY_YN)
+			,BOMN_YN = IFNULL(#{bomn_yn}, BOMN_YN)
+			,BOMN_NT = #{bomn_nt}
+			,BOMN_UPDT = now()
+			,BOMN_SABN = #{user_cd}
+		WHERE CUST_CD = #{cust_cd}
+			AND BOMN_CD = #{bomn_cd}
+	</update>
+	
+	<select id="bomnPageCode" parameterType="vmap" resultType="java.lang.Integer">
+		SELECT MAX(PAGE_CD) + 1
+		FROM DF_PAGE_INFO
+		WHERE CUST_CD = #{cust_cd}
+			AND PAGE_CD BETWEEN '8100' AND '8999'
+	</select>
+	<!-- 게시판 관련 끝 -->
+	
+	<!-- 공장 관련 시작 -->
+	<select id="factList" parameterType="vmap" resultType="rmap">
+		<![CDATA[
+		SELECT 
+			CUST_CD
+			,FACT_CD
+			,FACT_NM
+			,FACT_SEQ
+			,FACT_YN
+			,FACT_CRDT
+			,FACT_UPDT
+			,FACT_SABN
+		FROM DF_FACT_INFO
+		WHERE CUST_CD = #{cust_cd}
+			AND FACT_YN = 'Y'
+		ORDER BY FACT_SEQ
+		]]>
+	</select>
+	<!-- 공장 관련 끝 -->
+	
+	<!-- 부서 관련 시작 -->
+	<select id="deptChart" parameterType="vmap" resultType="rmap">
+		CALL spDeptChartCall(#{cust_cd})
+	</select>
+	
+	<select id="deptPage" parameterType="vmap" resultType="rmap">
+		CALL spDeptAllCall(#{cust_cd})
+	</select>
+	
+	<select id="deptDepth" parameterType="vmap" resultType="rmap">
+		<![CDATA[
+		SELECT
+			CUST_CD
+			,DEPT_CD
+			,DEPT_NM
+			,DEPT_MST_CD
+			,(SELECT USER_NM 
+				FROM DF_USER_INFO 
+				WHERE CUST_CD = #{cust_cd}
+					AND DEPT_MST_CD = USER_CD 
+			) DEPT_MST_NM
+			,(SELECT USER_YN
+				FROM DF_USER_INFO 
+				WHERE CUST_CD = #{cust_cd}
+					AND DEPT_MST_CD = USER_CD 
+			) DEPT_MST_YN
+			,DEPT_MJ_CD
+			,(SELECT DEPT_NM 
+				FROM DF_DEPT_INFO 
+				WHERE CUST_CD = #{cust_cd}
+					AND DEPT_CD = DDI.DEPT_MJ_CD
+			) DEPT_MJ_NM
+			,DEPT_DEPTH
+			,DEPT_SEQ
+		FROM DF_DEPT_INFO DDI
+		WHERE CUST_CD = #{cust_cd}
+			AND DEPT_MJ_CD = #{dept_mj_cd}
+			AND DEPT_DEPTH = #{dept_depth}
+			AND DEPT_YN = 'Y'
+		ORDER BY DEPT_SEQ
+		]]>
+	</select>
+	
+	<insert id="deptRegist" parameterType="vmap">
+		<selectKey keyProperty="dept_seq" resultType="java.lang.Integer" order="BEFORE">
+			SELECT IFNULL(MAX(DEPT_SEQ) + 1, 1)
+			FROM DF_DEPT_INFO
+			WHERE CUST_CD = #{cust_cd}
+				AND DEPT_MJ_CD = #{dept_mj_cd}
+				AND DEPT_DEPTH = #{dept_depth}
+		</selectKey>
+		
+		INSERT INTO DF_DEPT_INFO (
+			CUST_CD
+			,DEPT_CD
+			,DEPT_NM
+			,DEPT_MST_CD
+			,DEPT_MJ_CD
+			,DEPT_DEPTH
+			,DEPT_SEQ
+			,DEPT_CRDT
+			,DEPT_UPDT
+			,DEPT_SABN
+		)
+		VALUES (
+			#{cust_cd}
+			,#{dept_cd}
+			,#{dept_nm}
+			,#{dept_mst_cd}
+			,#{dept_mj_cd}
+			,#{dept_depth}
+			,#{dept_seq}
+			,NOW()
+			,NOW()
+			,#{user_cd}
+		)
+	</insert>
+	
+	<select id="deptOverlap" parameterType="vmap" resultType="rmap">
+		SELECT 
+			CUST_CD
+			,DEPT_CD
+			,DEPT_NM
+			,DEPT_MST_CD
+			,DEPT_MJ_CD
+			,DEPT_DEPTH
+			,DEPT_SEQ
+		FROM DF_DEPT_INFO
+		WHERE CUST_CD = #{cust_cd}
+			AND DEPT_NM = #{dept_nm}
+	</select>
+	
+	<select id="deptItem" parameterType="vmap" resultType="rmap">
+		<![CDATA[
+		SELECT
+			CUST_CD
+			,DEPT_CD
+			,DEPT_NM
+			,DEPT_MST_CD
+			,DEPT_SEQ
+			,DEPT_MJ_CD
+			,(SELECT A.DEPT_NM 
+				FROM DF_DEPT_INFO A
+				WHERE A.CUST_CD = #{cust_cd}
+					AND A.DEPT_CD = DDI.DEPT_MJ_CD
+			) DEPT_MJ_NM
+			,DEPT_DEPTH
+			,DEPT_YN
+		FROM DF_DEPT_INFO DDI
+		WHERE CUST_CD = #{cust_cd}
+			AND DEPT_CD = #{dept_cd}
+		]]>
+	</select>
+	
+	<update id="deptModify" parameterType="vmap">
+		UPDATE DF_DEPT_INFO
+		SET DEPT_NM = #{dept_nm}
+			,DEPT_MST_CD = #{dept_mst_cd}
+			,DEPT_MJ_CD = #{dept_mj_cd}
+			,DEPT_YN = IFNULL(#{dept_yn}, DEPT_YN)
+			,DEPT_UPDT = now()
+			,DEPT_SABN = #{user_cd}
+		WHERE CUST_CD = #{cust_cd}
+			AND DEPT_CD = #{dept_cd}
+	</update>
+	
+	<update id="deptOrder" parameterType="vmap">
+		UPDATE DF_DEPT_INFO
+		SET DEPT_SEQ = #{dept_seq}
+			,DEPT_UPDT = now()
+			,DEPT_SABN = #{user_cd}
+		WHERE CUST_CD = #{cust_cd}
+			AND DEPT_CD = #{dept_cd}
+	</update>
+	<!-- 부서 관련 끝 -->
+	
+	<!-- 직급 관련 시작  -->
+	<select id="gradPage" parameterType="vmap" resultType="rmap">
+		SELECT 
+			CUST_CD
+			,GRAD_CD
+			,GRAD_NM
+			,GRAD_SEQ
+			,GRAD_YN
+			,GRAD_CRDT
+			,GRAD_UPDT
+			,GRAD_SABN
+			,(SELECT USER_NM 
+				FROM DF_USER_INFO 
+				WHERE CUST_CD = DGI.CUST_CD
+					AND USER_CD = GRAD_SABN
+			) USER_NM
+		FROM DF_GRAD_INFO DGI
+		WHERE CUST_CD = #{cust_cd}
+		<!-- 공통 검색어 시작 -->
+		<if test='@com.bluebiz.common.util.CommonUtils@isNotEmpty(keywords)'>
+			AND
+			<foreach item="item" index="index" collection="columnList" open="(" separator=" OR " close=")">
+				${item} LIKE CONCAT('%', #{keywords}, '%')
+			</foreach>
+		</if>
+		<!-- 공통 검색어 끝 -->
+		<if test='@com.bluebiz.common.util.CommonUtils@isNotEmpty(grad_yn)'>
+			AND GRAD_YN = #{grad_yn}
+		</if>
+		ORDER BY GRAD_SEQ, GRAD_NM
+	</select>
+	
+	<select id="gradList" parameterType="vmap" resultType="rmap">
+		SELECT 
+			CUST_CD
+			,GRAD_CD
+			,GRAD_NM
+			,GRAD_SEQ
+		FROM DF_GRAD_INFO
+		WHERE CUST_CD = #{cust_cd}
+			AND GRAD_YN = 'Y'
+		ORDER BY GRAD_SEQ
+	</select>
+	
+	<insert id="gradRegist" parameterType="vmap">
+		<selectKey keyProperty="grad_seq" resultType="java.lang.Integer" order="BEFORE">
+			SELECT IFNULL(MAX(GRAD_SEQ) + 1, 1)
+			FROM DF_GRAD_INFO
+			WHERE CUST_CD = #{cust_cd}
+		</selectKey>
+		
+		INSERT INTO DF_GRAD_INFO (
+			CUST_CD
+			,GRAD_CD
+			,GRAD_NM
+			,GRAD_SEQ
+			,GRAD_CRDT
+			,GRAD_UPDT
+			,GRAD_SABN
+		)
+		VALUES (
+			#{cust_cd}
+			,#{grad_cd}
+			,#{grad_nm}
+			,#{grad_seq}
+			,NOW()
+			,NOW()
+			,#{user_cd}
+		)
+	</insert>
+	
+	<select id="gradOverlap" parameterType="vmap" resultType="rmap">
+		SELECT 
+			CUST_CD
+			,GRAD_CD
+			,GRAD_NM
+			,GRAD_SEQ
+			,GRAD_YN
+		FROM DF_GRAD_INFO
+		WHERE CUST_CD = #{cust_cd}
+			AND GRAD_NM = #{grad_nm}
+	</select>
+	
+	<select id="gradItem" parameterType="vmap" resultType="rmap">
+		<![CDATA[
+		SELECT
+			CUST_CD
+			,GRAD_CD
+			,GRAD_NM
+			,GRAD_YN
+		FROM DF_GRAD_INFO
+		WHERE CUST_CD = #{cust_cd}
+			AND GRAD_CD = #{grad_cd}
+		]]>
+	</select>
+	
+	<update id="gradModify" parameterType="vmap">
+		UPDATE DF_GRAD_INFO
+		SET GRAD_NM = #{grad_nm}
+			,GRAD_YN = IFNULL(#{grad_yn}, GRAD_YN)
+			,GRAD_UPDT = now()
+			,GRAD_SABN = #{user_cd}
+		WHERE CUST_CD = #{cust_cd}
+			AND GRAD_CD = #{grad_cd}
+	</update>
+	
+	<update id="gradOrder" parameterType="vmap">
+		UPDATE DF_GRAD_INFO
+		SET GRAD_SEQ = #{grad_seq}
+			,GRAD_UPDT = now()
+			,GRAD_SABN = #{user_cd}
+		WHERE CUST_CD = #{cust_cd}
+			AND GRAD_CD = #{grad_cd}
+	</update>
+	<!-- 직급 관련 끝 -->
+	
+	<!-- 사용자 관련 시작  -->
+	<select id="userPage" parameterType="vmap" resultType="rmap">
+		SELECT 
+			CUST_CD
+			,FACT_CD
+			,USER_CD
+			,USER_NM
+			,DEPT_CD
+			,(SELECT DEPT_NM
+				FROM DF_DEPT_INFO
+				WHERE CUST_CD = DUI.CUST_CD
+					AND DEPT_CD = DUI.DEPT_CD
+					AND DEPT_YN = 'Y'
+			) DEPT_NM
+			,GRAD_CD
+			,(SELECT GRAD_NM
+				FROM DF_GRAD_INFO
+				WHERE CUST_CD = DUI.CUST_CD
+					AND GRAD_CD = DUI.GRAD_CD
+					AND GRAD_YN = 'Y'
+			) GRAD_NM
+			,USER_JOIN_DT
+			,USER_QUIT_DT
+			,USER_ADDR
+			,USER_MOBILE
+			,USER_EMAIL
+			,USER_TEL
+			,USER_IN_TEL
+			,USER_IMG
+			,USER_SIGN
+			,USER_LOCK_YN
+			,USER_YN
+			,USER_HACCP_YN
+			,USER_LOGIN_DT
+			,USER_CRDT
+			,USER_UPDT
+			,USER_SABN
+			,(SELECT USER_NM
+				FROM DF_USER_INFO
+				WHERE CUST_CD = DUI.CUST_CD
+					AND USER_CD = DUI.USER_SABN
+			) REG_USER_NM
+		FROM DF_USER_INFO DUI
+			JOIN DF_FACT_INFO USING(CUST_CD, FACT_CD)
+		WHERE CUST_CD = #{cust_cd}
+			AND (USER_CD <![CDATA[<>]]> 'bluebiz' AND USER_CD <![CDATA[<>]]> 'test')
+		<if test="@com.bluebiz.common.util.CommonUtils@isNotEmpty(fact_cd)">
+			AND FACT_CD = #{fact_cd}
+		</if>
+		<!-- 공통 검색어 시작 -->
+		<if test='@com.bluebiz.common.util.CommonUtils@isNotEmpty(keywords)'>
+			AND
+			<foreach item="item" index="index" collection="columnList" open="(" separator=" OR " close=")">
+				${item} LIKE CONCAT('%', #{keywords}, '%')
+			</foreach>
+		</if>
+		<!-- 공통 검색어 끝 -->
+		<if test="@com.bluebiz.common.util.CommonUtils@isNotEmpty(user_lock_yn)">
+			AND USER_LOCK_YN = #{user_lock_yn}
+		</if>
+		<if test="@com.bluebiz.common.util.CommonUtils@isNotEmpty(user_yn)">
+			AND USER_YN = #{user_yn}
+		</if>
+		ORDER BY USER_NM
+	</select>
+	
+	<insert id="userRegist" parameterType="vmap">
+		INSERT INTO DF_USER_INFO (
+			CUST_CD
+			,USER_CD
+			,USER_PW
+			,USER_NM
+			,FACT_CD
+			,GRAD_CD
+			,DEPT_CD
+			,USER_JOIN_DT
+			,USER_QUIT_DT
+			,USER_ADDR
+			,USER_MOBILE
+			,USER_TEL
+			,USER_IN_TEL
+			,USER_EMAIL
+			,USER_IMG
+			,USER_SIGN
+			,USER_ADMIN_YN
+			,USER_LOCK_YN
+			,USER_YN
+			,USER_CRDT
+			,USER_UPDT
+			,USER_SABN
+			,USER_HACCP_YN
+		)
+		VALUES (
+			#{cust_cd}
+			,#{user_cd}
+			,#{user_pw}
+			,#{user_nm}
+			,#{fact_cd}
+			,#{grad_cd}
+			,#{dept_cd}
+			,#{user_join_dt}
+			,#{user_quit_dt}
+			,#{user_addr}
+			,#{user_mobile}
+			,#{user_tel}
+			,#{user_in_tel}
+			,#{user_email}
+			,#{user_img}
+			,#{user_sign}
+			,IFNULL(#{user_admin_yn}, 'N')
+			,IFNULL(#{user_lock_yn}, 'N')
+			,IFNULL(#{user_yn}, 'Y')
+			,NOW()
+			,NOW()
+			,#{reg_user_cd}
+			,IFNULL(#{user_haccp_yn}, 'N')
+		)
+	</insert>
+
+	<insert id="userBordRegist" parameterType="vmap">
+		INSERT INTO BD_BORD_CHECK
+		(
+			  BORD_USER
+			 ,BORD_CNDT
+		)
+		VALUES
+	   (
+		   	 #{user_cd}
+	   		,NOW()
+	   )
+	</insert>
+	
+	<select id="userOverlap" parameterType="vmap" resultType="rmap">
+		SELECT 
+			USER_CD
+			,USER_PW
+			,USER_NM
+			,CUST_CD
+			,FACT_CD
+			,GRAD_CD
+			,DEPT_CD
+			,USER_ADDR
+			,USER_MOBILE
+			,USER_TEL
+			,USER_IN_TEL
+			,USER_EMAIL
+			,USER_IMG
+			,USER_SIGN
+			,USER_ADMIN_YN
+			,USER_LOCK_YN
+			,USER_YN
+		FROM DF_USER_INFO
+		WHERE CUST_CD = #{cust_cd}
+			AND USER_CD = #{user_cd}
+	</select>
+	
+	<select id="userItem" parameterType="vmap" resultType="rmap">
+		SELECT 
+			CUST_CD
+			,FACT_CD
+			,(SELECT FACT_NM
+				FROM DF_FACT_INFO A
+				WHERE CUST_CD = #{cust_cd}
+					AND DUI.FACT_CD = A.FACT_CD
+			) FACT_NM
+			,USER_CD
+			,USER_NM
+			,DEPT_CD
+			,(SELECT DEPT_NM
+				FROM DF_DEPT_INFO A
+				WHERE CUST_CD = #{cust_cd}
+					AND DUI.DEPT_CD = A.DEPT_CD
+			) DEPT_NM
+			,GRAD_CD
+			,(SELECT GRAD_NM
+				FROM DF_GRAD_INFO A
+				WHERE CUST_CD = #{cust_cd}
+					AND DUI.GRAD_CD = A.GRAD_CD
+			) GRAD_NM
+			,DATE_FORMAT(USER_JOIN_DT, '%Y-%m-%d') USER_JOIN_DT
+			,DATE_FORMAT(USER_QUIT_DT, '%Y-%m-%d') USER_QUIT_DT
+			,USER_ADDR
+			,USER_MOBILE
+			,USER_EMAIL
+			,USER_TEL
+			,USER_IN_TEL
+			,USER_IMG
+			,USER_SIGN
+			,USER_ADMIN_YN
+			,USER_LOCK_YN
+			,USER_HACCP_YN
+			,USER_YN
+			,USER_LOGIN_DT
+			,USER_HACCP_YN
+		FROM DF_USER_INFO DUI
+		WHERE CUST_CD = #{cust_cd}
+			AND USER_CD = #{user_cd}
+	</select>
+	
+	<update id="userModify" parameterType="vmap">
+		UPDATE DF_USER_INFO
+		SET 
+			FACT_CD = #{fact_cd}
+			,USER_NM = #{user_nm}
+			,USER_PW = IFNULL(#{user_pw}, USER_PW)
+			,DEPT_CD = #{dept_cd}
+			,GRAD_CD = #{grad_cd}
+			,USER_JOIN_DT = #{user_join_dt} 
+			,USER_QUIT_DT = #{user_quit_dt} 
+			,USER_ADDR = #{user_addr}
+			,USER_MOBILE = #{user_mobile}
+			,USER_EMAIL = #{user_email}
+			,USER_TEL = #{user_tel}
+			,USER_IN_TEL = #{user_in_tel}
+			,USER_IMG = #{user_img}
+			,USER_IMG = #{user_img}
+			,USER_SIGN = #{user_sign}
+			,USER_ADMIN_YN = IFNULL(#{user_admin_yn}, USER_ADMIN_YN)
+			,USER_LOCK_YN = IFNULL(#{user_lock_yn}, USER_LOCK_YN)
+			,USER_YN = IFNULL(#{user_yn}, USER_YN)
+			,USER_UPDT = NOW()
+			,USER_SABN = #{reg_user_cd}
+			,USER_HACCP_YN = IFNULL(#{user_haccp_yn}, USER_HACCP_YN)
+		WHERE CUST_CD = #{cust_cd}
+			AND USER_CD = #{user_cd}
+	</update>
+	<!-- 사용자 관련 끝 -->
+	
+</mapper>
